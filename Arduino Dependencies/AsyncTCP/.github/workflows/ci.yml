@@ -1,0 +1,82 @@
+name: Async TCP CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-arduino:
+    name: ${{ matrix.config }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        config: [arduino-cli.yaml, arduino-cli-dev.yaml]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: arduino/setup-arduino-cli@v1
+      - name: Download board
+        run: |
+          arduino-cli --config-file ${{ matrix.config }} core update-index
+          arduino-cli --config-file ${{ matrix.config }} board listall
+          arduino-cli --config-file ${{ matrix.config }} core install esp32:esp32
+      - name: Compile Sketch
+        run: arduino-cli --config-file ${{ matrix.config }} --library ./src/ compile --fqbn esp32:esp32:esp32 ./examples/ClientServer/Client/Client.ino
+      - name: Compile Sketch with IPv6
+        env:
+          LWIP_IPV6: true
+        run: arduino-cli --config-file ${{ matrix.config }} --library ./src/ compile --fqbn esp32:esp32:esp32 ./examples/ClientServer/Client/Client.ino
+
+  pio_envs:
+    name: Get PlatformIO Envs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          key: pip
+          path: ~/.cache/pip
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Install PlatformIO
+        run: |
+          python -m pip install --upgrade pip
+          pip install --upgrade platformio
+      - name: Get Envs
+        id: envs
+        run: |
+          echo "pio_default_envs=$(pio project config --json-output | jq -cr '[ .[][0] | select(startswith("env:") and (endswith("-debug")|not)) | .[4:] ]')" >> $GITHUB_OUTPUT
+
+    outputs:
+      pio_default_envs: ${{ steps.envs.outputs.pio_default_envs }}
+      
+  build-pio:
+    name: "pio:${{ matrix.environment }}"
+    needs: [pio_envs]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: ${{ fromJSON(needs.pio_envs.outputs.pio_default_envs) }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: pio
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - run: pip install platformio
+
+      - name: Install platformio
+        run: |
+          python -m pip install --upgrade pip
+          pip install --upgrade platformio
+        
+      - run: PLATFORMIO_SRC_DIR=examples/ClientServer/Client pio run -e ${{ matrix.environment }}

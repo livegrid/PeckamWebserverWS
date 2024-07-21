@@ -1,0 +1,145 @@
+name: Arduino Library CI
+
+on:
+  push:
+    paths-ignore:
+      - "**/**.md"
+      - "/keywords.txt"
+      - "/library.json"
+      - "/library.properties"
+      - "/vue-frontend"
+      - "/docs"
+  pull_request:
+    paths-ignore:
+      - "**/**.md"
+      - "/keywords.txt"
+      - "/library.json"
+      - "/library.properties"
+      - "/vue-frontend"
+      - "/docs"
+
+jobs:
+  arduino:
+    name: arduino ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: package_esp32_index.json
+            core: esp32:esp32
+            board: esp32:esp32:esp32
+            index_url: https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          - name: package_esp32_dev_index.json
+            core: esp32:esp32
+            board: esp32:esp32:esp32
+            index_url: https://espressif.github.io/arduino-esp32/package_esp32_dev_index.json
+          - name: package_esp8266com_index.json
+            core: esp8266:esp8266
+            board: esp8266:esp8266:huzzah
+            index_url: https://arduino.esp8266.com/stable/package_esp8266com_index.json
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Arduino Lint
+        uses: arduino/arduino-lint-action@v1
+        with:
+          library-manager: update
+
+      - name: Install arduino-cli
+        run: curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | BINDIR=/usr/local/bin sh
+
+      - name: Update core index
+        run: arduino-cli core update-index --additional-urls "${{ matrix.index_url }}"
+
+      - name: Install core
+        run: arduino-cli core install --additional-urls "${{ matrix.index_url }}" ${{ matrix.core }}
+
+      - name: Install AsyncTCP
+        run: ARDUINO_LIBRARY_ENABLE_UNSAFE_INSTALL=true arduino-cli lib install --git-url https://github.com/mathieucarbou/AsyncTCP#v3.1.4
+
+      - name: Install ESPAsyncTCP
+        run: ARDUINO_LIBRARY_ENABLE_UNSAFE_INSTALL=true arduino-cli lib install --git-url https://github.com/mathieucarbou/esphome-ESPAsyncTCP#v2.0.0
+
+      - name: Install ESPAsyncWebServer
+        run: ARDUINO_LIBRARY_ENABLE_UNSAFE_INSTALL=true arduino-cli lib install --git-url https://github.com/mathieucarbou/ESPAsyncWebServer#v3.0.2
+
+      - name: Install ArduinoJson
+        run: ARDUINO_LIBRARY_ENABLE_UNSAFE_INSTALL=true arduino-cli lib install --git-url https://github.com/bblanchon/ArduinoJson#v7.0.4
+
+      - name: Build AccessPoint
+        run: arduino-cli compile --library . --warnings none -b ${{ matrix.board }} "examples/AccessPoint/AccessPoint.ino"
+
+      - name: Build Basic
+        run: arduino-cli compile --library . --warnings none -b ${{ matrix.board }} "examples/Basic/Basic.ino"
+
+      - name: Build Benchmark
+        run: arduino-cli compile --library . --warnings none -b ${{ matrix.board }} "examples/Benchmark/Benchmark.ino"
+
+      - name: Build Chart
+        run: arduino-cli compile --library . --warnings none -b ${{ matrix.board }} "examples/Chart/Chart.ino"
+
+      - name: Build Dynamic
+        run: arduino-cli compile --library . --warnings none -b ${{ matrix.board }} "examples/Dynamic/Dynamic.ino"
+
+      - name: Build Interactive
+        run: arduino-cli compile --library . --warnings none -b ${{ matrix.board }} "examples/Interactive/Interactive.ino"
+
+  platformio:
+    name: pio ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: esp32dev|arduino
+            board: esp32dev
+            platform: espressif32
+            opts: "--project-option 'lib_compat_mode = strict'"
+          - name: esp32dev|arduino-2
+            board: esp32dev
+            platform: espressif32@6.7.0
+            opts: "--project-option 'lib_compat_mode = strict'"
+          - name: esp32dev|arduino-3
+            board: esp32dev
+            platform: espressif32
+            opts: "--project-option 'lib_compat_mode = strict' --project-option 'platform_packages=platformio/framework-arduinoespressif32 @ https://github.com/espressif/arduino-esp32.git#3.0.2, platform_packages=platformio/framework-arduinoespressif32-libs @ https://github.com/espressif/arduino-esp32/releases/download/3.0.2/esp32-arduino-libs-3.0.2.zip'"
+          - name: esp32-s3-devkitc-1|arduino
+            board: esp32-s3-devkitc-1
+            platform: espressif32
+            opts: "--project-option 'lib_compat_mode = strict'"
+          - name: esp32-s3-devkitc-1|arduino-2
+            board: esp32-s3-devkitc-1
+            platform: espressif32@6.7.0
+            opts: "--project-option 'lib_compat_mode = strict'"
+          - name: esp32-s3-devkitc-1|arduino-3
+            board: esp32-s3-devkitc-1
+            platform: espressif32
+            opts: "--project-option 'lib_compat_mode = strict' --project-option 'platform_packages=platformio/framework-arduinoespressif32 @ https://github.com/espressif/arduino-esp32.git#3.0.2, platform_packages=platformio/framework-arduinoespressif32-libs @ https://github.com/espressif/arduino-esp32/releases/download/3.0.2/esp32-arduino-libs-3.0.2.zip'"
+          - name: huzzah|espressif8266
+            board: huzzah
+            platform: espressif8266
+            opts: "--project-option 'lib_compat_mode = strict'"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: ${{ matrix.name }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - run: pip install platformio
+      - run: platformio platform install ${{ matrix.platform }}
+
+      - run: platformio ci "examples/AccessPoint/AccessPoint.ino" -l '.' -b ${{ matrix.board }} ${{ matrix.opts }}
+      - run: platformio ci "examples/Basic/Basic.ino" -l '.' -b ${{ matrix.board }} ${{ matrix.opts }}
+      - run: platformio ci "examples/Benchmark/Benchmark.ino" -l '.' -b ${{ matrix.board }} ${{ matrix.opts }}
+      - run: platformio ci "examples/Chart/Chart.ino" -l '.' -b ${{ matrix.board }} ${{ matrix.opts }}
+      - run: platformio ci "examples/Dynamic/Dynamic.ino" -l '.' -b ${{ matrix.board }} ${{ matrix.opts }}
+      - run: platformio ci "examples/Interactive/Interactive.ino" -l '.' -b ${{ matrix.board }} ${{ matrix.opts }}
